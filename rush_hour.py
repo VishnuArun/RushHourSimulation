@@ -20,11 +20,11 @@ class Stats(object): #maybe use this to track stats instead of the shitty global
         total_passengers_delivered = 0
         total_elevator_wait_time = 0
         total_lobby_wait_time = 0
-
         
-class PQ(object): #priority queue, with time events represented as a tuple (action, time to event). Time to event is in t-minus style.
+class EventQueue(object):
     def __init__(self):
         self.queue = []
+        #self.time = 0.
 
     def add_right(self, event):
         self.queue.append(event)
@@ -42,26 +42,12 @@ class PQ(object): #priority queue, with time events represented as a tuple (acti
             
     def pop(self):
         return self.queue.pop(0)
-    
-        
-class EventQueue(object):
-    def __init__(self):
-        self.events = PQ()
-        #self.time = 0.
-
-    def push_event(self, event):
-        self.events.push(event)
-
-    def pop_event(self):
-        popped_event = self.events.pop()
-        #self.time += popped_event[1]
-        return popped_event
 
     def get_soonest(self):
-        if len(self.events.queue) > 0:
-            return self.events.queue[0]
+        if len(self.queue) > 0:
+            return self.queue[0][1]
         else:
-            return (100000,1000000)
+            return 10000000
     
 class Person(object):
     def __init__(self,arrival_time,events):
@@ -86,7 +72,6 @@ class Person(object):
         global total_elevator_wait_time
         global total_lobby_wait_time
         self.elevator_wait = time - self.arrival_time
-        print(1)
         total_passengers_delivered += 1
         total_elevator_wait_time += self.elevator_wait
         total_lobby_wait_time += self.lobby_wait
@@ -103,12 +88,12 @@ class Elevator(object):
 
     def ascend(self, events, time):
         if self.selected_floors == []:
-            events.push_event((self.identifier, 0))
+            events.push((self.identifier, 0))
         else:
             self.door_close_time = -1
             elevator_ride_time =  5.*len(self.selected_floors)          #5 seconds of stopping per floor
             elevator_ride_time += 3.*(max(self.selected_floors) + 1)    #3 seconds per floor we need to travel
-            events.push_event((self.identifier, elevator_ride_time))
+            events.push((self.identifier, elevator_ride_time + time))
 
     def depart(self, time):
         if self.selected_floors == []:
@@ -167,19 +152,21 @@ def main(RUN_TIME = 1000):
                     passenger.board(elevator, time)
                     break
         [sdc, sdce] = get_soonest_door_close(elevators)
-        if sdc == min(sdc, events.get_soonest()[1], passenger_spawn_events[0]):
-            
+        #print(events.get_soonest())
+        if sdc == min(sdc, events.get_soonest() - time, passenger_spawn_events[0] - time):
             time += sdc
             elevators[sdce].ascend(events,time)
-        elif passenger_spawn_events[0] == min(sdc, events.get_soonest()[1], passenger_spawn_events[0]):
             
-            time += passenger_spawn_events.pop(0)
+        elif passenger_spawn_events[0] - time == min(sdc, events.get_soonest() - time, passenger_spawn_events[0] - time):
+            time = passenger_spawn_events.pop(0)
             lobby.append(Person(time,events))
+            
         else:
-            print(events.events.queue)
-            event = events.pop_event()
+            #print(events.queue)
+            event = events.pop()
             time += event[1]
             elevators[event[0]].depart(time)
+            
         print(time)
     print('Total Passengers Delivered: '+str(total_passengers_delivered))
     print('Supposed number of passengers: '+str(LENGTH))
