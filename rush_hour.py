@@ -26,6 +26,9 @@ class PQ(object): #priority queue, with time events represented as a tuple (acti
     def __init__(self):
         self.queue = []
 
+    def add_right(self, event):
+        self.queue.append(event)
+        
     def push(self, event):
         inserted = False
         i = 0
@@ -44,32 +47,46 @@ class PQ(object): #priority queue, with time events represented as a tuple (acti
 class EventQueue(object):
     def __init__(self):
         self.events = PQ()
-        self.time = 0.
+        #self.time = 0.
 
-    def add_event(self, event):
+    def push_event(self, event):
         self.events.push(event)
 
-    def get_next_event(self):
+    def pop_event(self):
         popped_event = self.events.pop()
-        self.time += popped_event[1]
-        return self.events.pop()
+        #self.time += popped_event[1]
+        return popped_event
 
+    def get_soonest(self):
+        if len(self.events.queue) > 0:
+            return self.events.queue[0]
+        else:
+            return (100000,1000000)
     
 class Person(object):
-    def __init__(self,arrival_time):
+    def __init__(self,arrival_time,events):
         self.elevator_wait = 0.
         self.lobby_wait = 0.
         self.arrival_time = arrival_time
+        self.events = events
         self.desired_floor = random.randrange(0,12)
         
     def board(self, elevator, time):
         self.lobby_wait = time - self.arrival_time
         elevator.passengers.append(self)
+        elevator.current_load += 1
+        elevator.door_close_time = 15.
         if self.desired_floor not in elevator.selected_floors:
             elevator.selected_floors.append(self.desired_floor)
+        if elevator.current_load == elevator.max_load:
+            elevator.ascend(self.events, time)
 
     def depart(self, elevator, time):
+        global total_passengers_delivered
+        global total_elevator_wait_time
+        global total_lobby_wait_time
         self.elevator_wait = time - self.arrival_time
+        print(1)
         total_passengers_delivered += 1
         total_elevator_wait_time += self.elevator_wait
         total_lobby_wait_time += self.lobby_wait
@@ -85,12 +102,22 @@ class Elevator(object):
         self.passengers = []        #list of passengers on board
 
     def ascend(self, events, time):
-        self.door_close_time = 0
-        elevator_ride_time =  5.*len(self.selected_floors)          #5 seconds of stopping per floor
-        elevator_ride_time += 3.*(max(self.selected_floors) + 1)    #3 seconds per floor we need to travel
-        events.add_event((self.departure(time + elevator_ride_time), elevator_ride_time))
+        if self.selected_floors == []:
+            events.push_event((self.identifier, 0))
+        else:
+            self.door_close_time = -1
+            elevator_ride_time =  5.*len(self.selected_floors)          #5 seconds of stopping per floor
+            elevator_ride_time += 3.*(max(self.selected_floors) + 1)    #3 seconds per floor we need to travel
+            events.push_event((self.identifier, elevator_ride_time))
 
-    def departure(self, time):
+    def depart(self, time):
+        if self.selected_floors == []:
+            self.current_load = 0
+            self.door_close_time = 15.
+            self.selected_floors = []
+            self.passengers = []
+            return
+        
         for passenger in self.passengers:
             passenger.depart(self, time - 3.*(max(self.selected_floors) - passenger.desired_floor))
         #reset everything in the elevator to 0, assume it instantly returns to ground floor (change "ascend" if disagree)
@@ -103,37 +130,69 @@ class Elevator(object):
 class Lobby(object):
     def __init__(self, ):
         self.passengers = []
+        
+    def add(self, passenger):
+        self.passengers.append(passenger)
 
               
-def new_passenger(time):
-    p = Person(time)
-    #some code on "if elevator[i] is open, board instantly"
+def new_passenger(lobby, time):
+    lobby.add(Person(time))
 
-
-def get_soonest_door_close(elevators): #this probably isn't needed since we have an event queue
+def get_soonest_door_close(elevators): 
     sdc = 15.
-    sdce = elevators[0]
+    sdce = 0
     for e in elevators:
-        if e.door_close_time < sdc:
+        if (e.door_close_time > 0) and (e.door_close_time < sdc):
             sdc = e.door_close_time
             sdce = e.identifier
     return sdc, sdce
 
 
-def main(RUN_TIME = 10000):
-    time = 0
+def main(RUN_TIME = 1000):
+    virtual_time = 0
     elevators = [Elevator(i) for i in range(0,4)]
-    events = EventQueue()
-    while time <= RUN_TIME: #push all passenger generation events first
+    passenger_spawn_events = []
+    lobby = []
+    while virtual_time <= RUN_TIME: #push all passenger generation events first
         delay = random.random()*30.
-        events.push((new_passenger(time + delay), delay))
-        time += delay
-        
+        passenger_spawn_events.append(virtual_time + delay)
+        virtual_time += delay
+    LENGTH = len(passenger_spawn_events)
+    time = 0
+    events = EventQueue()
+    while time <= RUN_TIME:
+        for passenger in lobby:
+            for elevator in elevators:
+                if elevator.door_close_time != 0:
+                    passenger.board(elevator, time)
+                    break
+        [sdc, sdce] = get_soonest_door_close(elevators)
+        if sdc == min(sdc, events.get_soonest()[1], passenger_spawn_events[0]):
+            
+            time += sdc
+            elevators[sdce].ascend(events,time)
+        elif passenger_spawn_events[0] == min(sdc, events.get_soonest()[1], passenger_spawn_events[0]):
+            
+            time += passenger_spawn_events.pop(0)
+            lobby.append(Person(time,events))
+        else:
+            print(events.events.queue)
+            event = events.pop_event()
+            time += event[1]
+            elevators[event[0]].depart(time)
+        print(time)
+    print('Total Passengers Delivered: '+str(total_passengers_delivered))
+    print('Supposed number of passengers: '+str(LENGTH))
+    print('Total Elevator Wait Time: '+str(total_elevator_wait_time))
+    print('Total Lobby Wait Time: '+str(total_lobby_wait_time))
+    
+    
 
-elevators = [Elevator() for i in range(0,4)]
-[sdc, sdce] = get_soonest_door_close(elevators)
-print(sdc)
-
+#elevators = [Elevator(i) for i in range(0,4)]
+#elevators[1].door_close_time=14.
+#[sdc, sdce] = get_soonest_door_close(elevators)
+#print(sdc,sdce)
+main()
 
 
 
