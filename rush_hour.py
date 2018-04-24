@@ -171,10 +171,12 @@ def main(RUN_TIME = 10000):
     elevators = [Elevator(i) for i in range(0,4)]
     passenger_spawn_events = []
     lobby = []
-    while virtual_time <= RUN_TIME: #push all passenger generation events first
-        delay = random.random()*5.
+    while virtual_time <= RUN_TIME: #generate all passenger generation events first
+        delay = -math.log(1.0 - random.random())*5.
         passenger_spawn_events.append(virtual_time + delay)
         virtual_time += delay
+    if passenger_spawn_events[-1] > RUN_TIME:
+        passenger_spawn_events = passenger_spawn_events[:-1]
     LENGTH = len(passenger_spawn_events)
     passenger_spawn_events.append(float('inf')) 
     time = 0
